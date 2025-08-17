@@ -19,7 +19,7 @@ from fastmcp import FastMCP
 INDEX_DIR = "faiss_medpol_single"
 
 # ---- Configure your LLM here ----
-GOOGLE_API_KEY = "AIzaSyB2BOc72OIVIvRSLy8lhG36iSr-grh8x3g"  # <-- replace with your key
+GOOGLE_API_KEY = "GOOGLE_API_KEY"  # <-- replace with your key
 MODEL_NAME = "gemini-1.5-flash"         # fast & cheap; switch to pro if you like
 
 app = FastMCP("medical-policy-single-doc")
