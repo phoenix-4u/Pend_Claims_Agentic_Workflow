@@ -1,0 +1,84 @@
+{
+  "sop_code": "B007",
+  "name": "Outpatient Physical Therapy Services",
+  "description": "This SOP outlines the process for reviewing outpatient physical therapy claims to ensure they meet medical necessity and documentation requirements.",
+  "version": "1.0.0",
+  "condition_codes": ["B007"],
+  "entry_point": "check_claim_eligibility",
+  "steps": {
+    "check_claim_eligibility": {
+      "type": "query",
+      "name": "Check Claim Eligibility",
+      "description": "Verify that the claim is for an eligible member and provider type.",
+      "query": "SELECT * FROM claim_headers WHERE icn = :icn AND claim_type = 'OUTPATIENT' AND provider_type = 'PHYSICAL_THERAPY';",
+      "next_step": "verify_medical_necessity"
+    },
+    "verify_medical_necessity": {
+      "type": "query",
+      "name": "Verify Medical Necessity",
+      "description": "Check if the services meet medical necessity criteria.",
+      "query": "SELECT cl.* FROM claim_lines cl JOIN claim_headers ch ON cl.icn = ch.icn WHERE cl.icn = :icn AND cl.procedure_code IN ('97110', '97112', '97140') AND ch.primary_dx_code IN ('M54.5', 'M54.9') AND cl.condition_code = 'B007';",
+      "next_step": "check_visit_limits"
+    },
+    "check_visit_limits": {
+      "type": "query",
+      "name": "Check Visit Limits",
+      "description": "Check if the member has exceeded visit limits for physical therapy services.",
+      "query": "WITH therapy_visits AS (SELECT COUNT(DISTINCT cl.first_dos) as visit_count FROM claim_lines cl JOIN claim_headers ch ON cl.icn = ch.icn WHERE ch.member_id = (SELECT member_id FROM claim_headers WHERE icn = :icn) AND cl.procedure_code IN ('97110', '97112', '97140') AND strftime('%Y', cl.first_dos) = strftime('%Y', 'now') AND cl.condition_code = 'B007') SELECT visit_count FROM therapy_visits;",
+      "next_step": "evaluate_visit_count"
+    },
+    "evaluate_visit_count": {
+      "type": "decision",
+      "name": "Evaluate Visit Count",
+      "description": "Determine if the visit count is within allowed limits.",
+      "condition": "steps['check_visit_limits']['result']['data'][0]['visit_count'] <= 20",
+      "true_step": "check_documentation",
+      "false_step": "deny_claim_exceeded_visits"
+    },
+    "check_documentation": {
+      "type": "query",
+      "name": "Check Documentation",
+      "description": "Verify if all required documentation is present for the claim.",
+      "query": "SELECT d.* FROM documentation d WHERE d.icn = :icn AND d.document_type IN ('TREATMENT_PLAN', 'PROGRESS_NOTES', 'FUNCTIONAL_ASSESSMENT') AND d.review_status = 'APPROVED';",
+      "next_step": "evaluate_documentation"
+    },
+    "evaluate_documentation": {
+      "type": "decision",
+      "name": "Evaluate Documentation",
+      "description": "Determine if all required documentation is present and approved.",
+      "condition": "len(steps['check_documentation']['result']['data']) >= 3",
+      "true_step": "approve_claim",
+      "false_step": "pend_for_documentation"
+    },
+    "approve_claim": {
+      "type": "action",
+      "name": "Approve Claim",
+      "description": "Approve the claim as it meets all requirements.",
+      "action_type": "approve_claim",
+      "parameters": {
+        "reason": "Claim meets all medical necessity and documentation requirements for physical therapy services."
+      },
+      "next_step": null
+    },
+    "deny_claim_exceeded_visits": {
+      "type": "action",
+      "name": "Deny Claim - Exceeded Visits",
+      "description": "Deny the claim as the member has exceeded the allowed number of visits.",
+      "action_type": "deny_claim",
+      "parameters": {
+        "reason": "Member has exceeded the maximum allowed physical therapy visits for the benefit period."
+      },
+      "next_step": null
+    },
+    "pend_for_documentation": {
+      "type": "action",
+      "name": "Pend for Documentation",
+      "description": "Pend the claim as it is missing required documentation.",
+      "action_type": "pend_claim",
+      "parameters": {
+        "reason": "Missing or incomplete documentation. Please submit the following: treatment plan, progress notes, and functional assessment."
+      },
+      "next_step": null
+    }
+  }
+}

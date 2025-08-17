@@ -1,3 +1,36 @@
+# Web Application
+streamlit
 fastapi
 uvicorn
+
+# AI/ML
+langgraph
+langchain
+langchain-core
+langchain-community
+
+# Database
+sqlalchemy
+aiosqlite
+
+# Data Processing
+pandas
+numpy
+python-dateutil
+pyyaml
+
+# Visualization
+plotly
+matplotlib
+
+# Utilities
+python-dotenv
+loguru
+typing-extensions
 pydantic
+pydantic-settings
+
+openai>=1.0.0 
+fastmcp
+langchain-mcp-adapters
+langchain[openai]
