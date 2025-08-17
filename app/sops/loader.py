@@ -4,7 +4,7 @@ from collections import defaultdict
 from typing import Dict, TypeVar, Any, Optional, List
 
 from .models import SOPDefinition, SOPStep
-from ..config.logging_config import logger
+from app.config.logging_config import logger
 
 # Import the MCP LangChain client you already implemented
 from app.core.mcp_client import mcp_langchain_client 
