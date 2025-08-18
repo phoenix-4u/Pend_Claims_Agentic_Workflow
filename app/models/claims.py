@@ -19,7 +19,7 @@ class ClaimHeader(Base):
     provider_number = Column(String, nullable=True, comment='Provider identifier')
     provider_name = Column(String, nullable=True, comment='Provider full name')
     provider_type = Column(String, nullable=True, comment='Type of provider')
-    provider_specialty = Column(String, nullable=True, comment='Provider specialty')
+    provider_speciality = Column(String, nullable=True, comment='Provider speciality')
     total_charge = Column(Float, nullable=True, comment='Total charge amount')
     primary_dx_code = Column(String, nullable=True, comment='Primary diagnosis code')
     

@@ -1,4 +1,8 @@
-"""MCP (Model Context Protocol) client for executing SQL queries using LangChain."""
+#file: app/core/mcp_client.py
+#author: Dipanjanghosal
+#date: 2025-08-18
+
+"""MCP (Model Context Protocol) client for executing SQL queries and policy extraction using LangChain."""
 import json
 import asyncio
 from typing import Dict, Any, List, Optional, TypedDict
@@ -17,27 +21,18 @@ from app.config.logging_config import logger
 
 load_dotenv()
 
-# # --- Logging ---
-# logging.basicConfig(
-#     level=logging.INFO,
-#     format='%(asctime)s - %(levelname)s - %(message)s',
-# )
-# logger = logging.getLogger(__name__)
-
+# Check required environment variables
 required_env_vars = [
     "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT",
     "AZURE_OPENAI_API_TYPE", "OPENAI_API_VERSION",
     "AZURE_OPENAI_DEPLOYMENT_NAME", "MODEL_NAME"
 ]
-# Check if any required variables are missing
 missing_vars = [var for var in required_env_vars if not os.getenv(var)]
 if missing_vars:
-    # Log critical error and stop the app if configuration is incomplete
     error_msg = f"Missing required environment variables: {', '.join(missing_vars)}. Please check your .env file or environment settings."
     logger.critical(error_msg)
 
 # Set environment variables for the LangChain Azure client library
-# (Setting them here ensures they are available even if not set globally before running)
 os.environ["AZURE_OPENAI_API_KEY"] = os.getenv("AZURE_OPENAI_API_KEY")
 os.environ["AZURE_OPENAI_ENDPOINT"] = os.getenv("AZURE_OPENAI_ENDPOINT")
 os.environ["AZURE_OPENAI_API_TYPE"] = os.getenv("AZURE_OPENAI_API_TYPE")
@@ -45,29 +40,26 @@ os.environ["AZURE_OPENAI_API_TYPE"] = os.getenv("AZURE_OPENAI_API_TYPE")
 try:
     # Initialize the AzureChatOpenAI client
     llm = AzureChatOpenAI(
-        temperature=0, # Use low temperature for deterministic, factual responses
-        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"), # Name of your Azure deployment
-        model_name=os.getenv("MODEL_NAME"), # Specific model used in the deployment (e.g., gpt-4o)
-        openai_api_version=os.getenv("OPENAI_API_VERSION") # API version (e.g., 2024-05-01-preview)
+        temperature=0,  # Use low temperature for deterministic, factual responses
+        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+        model_name=os.getenv("MODEL_NAME"),
+        openai_api_version=os.getenv("OPENAI_API_VERSION")
     )
     logger.info("AzureChatOpenAI LLM client initialized successfully.")
 except Exception as e:
-    # Handle errors during LLM client initialization
     error_msg = f"Failed to initialize Azure OpenAI connection: {e}"
-    logger.critical(error_msg, exc_info=True) # Log exception details
-
+    logger.critical(error_msg, exc_info=True)
 
 # Initialize MCP Client
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8000/sse")
 client = MultiServerMCPClient(
     {
         "sop_database": {
-            "url": "http://127.0.0.1:8000/sse",  # Your MCP SSE server URL
+            "url": MCP_SERVER_URL,  # Your MCP SSE server URL
             "transport": "sse",
         }
     }
 )
-
-
 
 # Global tools variable
 tools: Optional[List[Any]] = None
@@ -79,6 +71,14 @@ class MCPQueryResult(BaseModel):
     error: Optional[str] = Field(default=None, description="Error message if the query failed")
     execution_time_ms: Optional[float] = Field(default=None, description="Query execution time in milliseconds")
     row_count: Optional[int] = Field(default=None, description="Number of rows returned")
+
+class MCPPolicyResult(BaseModel):
+    """Result of policy extraction."""
+    success: bool = Field(..., description="Whether the extraction was successful")
+    found: bool = Field(default=False, description="Whether the code was found")
+    code: str = Field(..., description="The procedure code")
+    data: Optional[Dict[str, Any]] = Field(default=None, description="Extracted policy data")
+    error: Optional[str] = Field(default=None, description="Error message if extraction failed")
 
 class MCPWorkflowState(TypedDict):
     """State for MCP workflow operations."""
@@ -210,7 +210,7 @@ async def mcp_execute_query_node(state: MCPWorkflowState) -> MCPWorkflowState:
         else:
             logger.error("MCP tool returned invalid response format.")
             state['error_message'] = (current_error + " Invalid response format from MCP tool.").strip()
-            
+        
     except Exception as e:
         logger.error(f"Exception invoking MCP execute_query tool: {e}", exc_info=True)
         state["query_result"] = {"success": False, "error": f"Exception during tool call: {str(e)}"}
@@ -283,7 +283,7 @@ async def mcp_process_results_node(state: MCPWorkflowState) -> MCPWorkflowState:
             logger.info("Query results processed successfully by agent.")
         else:
             logger.warning("Agent did not return a processed response.")
-            
+        
     except Exception as e:
         logger.error(f"Error processing results with agent: {e}", exc_info=True)
         # Don't fail the workflow, just log the error
@@ -316,7 +316,7 @@ class MCPLangChainClient:
     def __init__(self):
         """Initialize the MCP LangChain client."""
         self.workflow = mcp_workflow_app
-        
+    
     async def execute_query(
         self,
         query: str,
@@ -329,7 +329,7 @@ class MCPLangChainClient:
             query: SQL query to execute
             params: Optional query parameters
             database: Target database name
-            
+        
         Returns:
             MCPQueryResult containing the query results or error
         """
@@ -378,7 +378,7 @@ class MCPLangChainClient:
                     error="No response from workflow",
                     execution_time_ms=0
                 )
-                
+        
         except Exception as e:
             error_msg = f"Error executing MCP query via workflow: {str(e)}"
             logger.error(error_msg, exc_info=True)
@@ -390,14 +390,154 @@ class MCPLangChainClient:
     
     async def get_all_sops(self) -> MCPQueryResult:
         """Retrieve all SOP steps from the database."""
+        global tools
+        if not tools:
+            await initialize_mcp_tools()
+        
+        # Try to use the dedicated tool first
+        get_all_sops_tool = next((t for t in tools if hasattr(t, 'name') and t.name == "get_all_sops"), None)
+        if get_all_sops_tool:
+            try:
+                result_str = await get_all_sops_tool.ainvoke({})
+                result_data = json.loads(result_str) if isinstance(result_str, str) else result_str
+                
+                if result_data.get("success"):
+                    return MCPQueryResult(
+                        success=True,
+                        data=result_data.get("data"),
+                        row_count=result_data.get("count")
+                    )
+                else:
+                    return MCPQueryResult(
+                        success=False,
+                        error=result_data.get("error", "Unknown error")
+                    )
+            except Exception as e:
+                logger.error(f"Error using get_all_sops tool: {e}")
+        
+        # Fallback to execute_query
         return await self.execute_query("SELECT id, sop_code, step_number, description, query FROM SOP ORDER BY sop_code, step_number")
     
     async def get_sop_by_code(self, sop_code: str) -> MCPQueryResult:
         """Retrieve all steps for a specific SOP code."""
+        global tools
+        if not tools:
+            await initialize_mcp_tools()
+        
+        # Try to use the dedicated tool first
+        get_sop_by_code_tool = next((t for t in tools if hasattr(t, 'name') and t.name == "get_sop_by_code"), None)
+        if get_sop_by_code_tool:
+            try:
+                result_str = await get_sop_by_code_tool.ainvoke({"sop_code": sop_code.upper()})
+                result_data = json.loads(result_str) if isinstance(result_str, str) else result_str
+                
+                if result_data.get("success"):
+                    return MCPQueryResult(
+                        success=True,
+                        data=result_data.get("data"),
+                        row_count=result_data.get("count")
+                    )
+                else:
+                    return MCPQueryResult(
+                        success=False,
+                        error=result_data.get("error", "Unknown error")
+                    )
+            except Exception as e:
+                logger.error(f"Error using get_sop_by_code tool: {e}")
+        
+        # Fallback to execute_query
         return await self.execute_query(
             "SELECT id, sop_code, step_number, description, query FROM SOP WHERE sop_code = :sop_code ORDER BY step_number",
             {"sop_code": sop_code.upper()}
         )
+    
+    async def get_database_schema(self) -> MCPQueryResult:
+        """Get the database schema information."""
+        global tools
+        if not tools:
+            await initialize_mcp_tools()
+
+        # Try to use the dedicated tool first
+        get_schema_tool = next(
+            (t for t in tools if hasattr(t, 'name') and t.name == "get_database_schema"),
+            None
+        )
+        if get_schema_tool:
+            try:
+                result_str = await get_schema_tool.ainvoke({})
+                result_data = json.loads(result_str) if isinstance(result_str, str) else result_str
+
+                if result_data.get("success"):
+                    # Wrap schema dict into a list of {table, columns} entries
+                    raw_schema = result_data.get("schema", {})
+                    data_list = [
+                        {"table": table, "columns": columns}
+                        for table, columns in raw_schema.items()
+                    ]
+                    return MCPQueryResult(
+                        success=True,
+                        data=data_list,
+                        row_count=len(data_list)
+                    )
+                else:
+                    return MCPQueryResult(
+                        success=False,
+                        error=result_data.get("error", "Unknown error")
+                    )
+            except Exception as e:
+                logger.error(f"Error using get_database_schema tool: {e}")
+
+        # Fallback to basic query
+        return await self.execute_query("SELECT name FROM sqlite_master WHERE type='table';")
+
+    
+    async def extract_policy_by_code(self, code: str, fields: Optional[List[str]] = None) -> MCPPolicyResult:
+        """Extract medical policy information for a specific procedure code.
+        
+        Args:
+            code: 5-digit procedure code (e.g., '27447')
+            fields: Optional list of specific fields to return
+        
+        Returns:
+            MCPPolicyResult with extracted policy information
+        """
+        global tools
+        if not tools:
+            await initialize_mcp_tools()
+        
+        # Find the policy extraction tool
+        policy_tool = next((t for t in tools if hasattr(t, 'name') and t.name == "extract_policy_json_by_code"), None)
+        if not policy_tool:
+            return MCPPolicyResult(
+                success=False,
+                found=False,
+                code=code,
+                error="Policy extraction tool not available"
+            )
+        
+        try:
+            tool_input = {"code": code}
+            if fields:
+                tool_input["fields"] = fields
+                
+            result_str = await policy_tool.ainvoke(tool_input)
+            result_data = json.loads(result_str) if isinstance(result_str, str) else result_str
+            
+            return MCPPolicyResult(
+                success=True,
+                found=result_data.get("found", False),
+                code=result_data.get("code", code),
+                data=result_data
+            )
+            
+        except Exception as e:
+            logger.error(f"Error extracting policy for code {code}: {e}", exc_info=True)
+            return MCPPolicyResult(
+                success=False,
+                found=False,
+                code=code,
+                error=f"Policy extraction failed: {str(e)}"
+            )
     
     async def close(self):
         try:
@@ -441,7 +581,17 @@ if __name__ == "__main__":
             {
                 "name": "Get SOP by Code",
                 "method": "get_sop_by_code",
-                "args": ["TEST"]
+                "args": ["B007"]
+            },
+            {
+                "name": "Get Database Schema",
+                "method": "get_database_schema",
+                "args": []
+            },
+            {
+                "name": "Extract Policy by Code",
+                "method": "extract_policy_by_code",
+                "args": ["27447"]
             },
             {
                 "name": "Custom Query",
@@ -459,13 +609,20 @@ if __name__ == "__main__":
                     
                     logger.info(f"Success: {result.success}")
                     if result.success:
-                        logger.info(f"Row Count: {result.row_count}")
-                        logger.info(f"Execution Time: {result.execution_time_ms}ms")
-                        if result.data:
-                            logger.info(f"Sample Data: {result.data[:2]}")  # First 2 rows
+                        if hasattr(result, 'row_count') and result.row_count is not None:
+                            logger.info(f"Row Count: {result.row_count}")
+                        if hasattr(result, 'execution_time_ms') and result.execution_time_ms is not None:
+                            logger.info(f"Execution Time: {result.execution_time_ms}ms")
+                        if hasattr(result, 'data') and result.data:
+                            if isinstance(result.data, list) and len(result.data) > 0:
+                                logger.info(f"Sample Data: {result.data[:2]}")  # First 2 rows
+                            else:
+                                logger.info(f"Data: {str(result.data)[:200]}...")
+                        if hasattr(result, 'found'):
+                            logger.info(f"Found: {result.found}")
                     else:
                         logger.error(f"Error: {result.error}")
-                        
+                    
                 except Exception as e:
                     logger.error(f"Test case failed: {e}", exc_info=True)
         

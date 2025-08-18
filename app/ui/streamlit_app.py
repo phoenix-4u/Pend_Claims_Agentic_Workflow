@@ -252,21 +252,23 @@ async def main():
 # Entry point: loop-aware
 # --------------------------
 if __name__ == "__main__":
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # If a loop is already running (some hosting setups), schedule without blocking
-            loop.create_task(main())
-        else:
-            loop.run_until_complete(main())
-    except RuntimeError:
-        # No current loop; create one and run
-        loop = asyncio.new_event_loop()
-        try:
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(main())
-        finally:
-            try:
-                loop.close()
-            except Exception:
-                pass
+    # try:
+    #     loop = asyncio.get_event_loop()
+    #     if loop.is_running():
+    #         # If a loop is already running (some hosting setups), schedule without blocking
+    #         loop.create_task(main())
+    #     else:
+    #         loop.run_until_complete(main())
+    # except RuntimeError:
+    #     # No current loop; create one and run
+    #     loop = asyncio.new_event_loop()
+    #     try:
+    #         asyncio.set_event_loop(loop)
+    #         loop.run_until_complete(main())
+    #     finally:
+    #         try:
+    #             loop.close()
+    #         except Exception:
+    #             pass
+    
+    asyncio.run(main())

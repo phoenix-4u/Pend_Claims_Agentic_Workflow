@@ -19,28 +19,49 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.prompts import PromptTemplate
 from langchain.output_parsers import ResponseSchema, StructuredOutputParser
 from langchain_openai import AzureChatOpenAI
+from dotenv import load_dotenv
+from ..config.logging_config import logger
 
-from app.config.logging_config import logger
+load_dotenv()
 
 # --- Configuration ---
 DATABASE_PATH = Path(__file__).parent.parent.parent / "data" / "claims.db"
-INDEX_DIR = os.getenv("FAISS_INDEX_DIR", "faiss_medpol_single")
+INDEX_DIR = os.getenv("FAISS_INDEX_DIR", "data")
 
 # Initialize FastMCP server
 mcp = FastMCP("sop-database-and-policy-extractor")
 
-# --- Azure OpenAI LLM Setup ---
+required_env_vars = [
+    "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT",
+    "AZURE_OPENAI_API_TYPE", "OPENAI_API_VERSION",
+    "AZURE_OPENAI_DEPLOYMENT_NAME", "MODEL_NAME"
+]
+# Check if any required variables are missing
+missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+if missing_vars:
+    # Log critical error and stop the app if configuration is incomplete
+    error_msg = f"Missing required environment variables: {', '.join(missing_vars)}. Please check your .env file or environment settings."
+    logger.critical(error_msg)
+
+# Set environment variables for the LangChain Azure client library
+# (Setting them here ensures they are available even if not set globally before running)
+os.environ["AZURE_OPENAI_API_KEY"] = os.getenv("AZURE_OPENAI_API_KEY")
+os.environ["AZURE_OPENAI_ENDPOINT"] = os.getenv("AZURE_OPENAI_ENDPOINT")
+os.environ["AZURE_OPENAI_API_TYPE"] = os.getenv("AZURE_OPENAI_API_TYPE")
+
 try:
+    # Initialize the AzureChatOpenAI client
     llm = AzureChatOpenAI(
-        temperature=0,
-        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-        model_name=os.getenv("MODEL_NAME"),
-        openai_api_version=os.getenv("OPENAI_API_VERSION"),
+        temperature=0, # Use low temperature for deterministic, factual responses
+        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"), # Name of your Azure deployment
+        model_name=os.getenv("MODEL_NAME"), # Specific model used in the deployment (e.g., gpt-4o)
+        openai_api_version=os.getenv("OPENAI_API_VERSION") # API version (e.g., 2024-05-01-preview)
     )
-    logger.info("Azure OpenAI LLM initialized for policy extraction")
+    logger.info("AzureChatOpenAI LLM client initialized successfully.")
 except Exception as e:
-    logger.error(f"Failed to initialize Azure OpenAI: {e}")
-    llm = None
+    # Handle errors during LLM client initialization
+    error_msg = f"Failed to initialize Azure OpenAI connection: {e}"
+    logger.critical(error_msg, exc_info=True) # Log exception details
 
 # --- FAISS Vector Store Setup ---
 _embeddings = None
@@ -360,13 +381,14 @@ def get_database_schema() -> str:
         for table in tables:
             cursor.execute(f"PRAGMA table_info({table});")
             columns = cursor.fetchall()
+            # PRAGMA table_info returns: (cid, name, type, notnull, dflt_value, pk)
             schema_info[table] = [
                 {
-                    "name": col[1],
-                    "type": col[2],
-                    "not_null": bool(col[4]),
-                    "default_value": col[5],
-                    "primary_key": bool(col[6])
+                    "name": col[1],           # Column name
+                    "type": col[2],           # Data type  
+                    "not_null": bool(col[3]), # NOT NULL constraint
+                    "default_value": col[4],  # Default value
+                    "primary_key": bool(col[5]) # Primary key flag
                 }
                 for col in columns
             ]
