@@ -161,6 +161,7 @@ class ClaimProcessor:
 
         try:
             final_state = await self.workflow.ainvoke(initial_state)
+            final_state = dict(final_state)  # make mutable copy
         except Exception as e:
             logger.error(f"Error processing claim {icn}: {e}", exc_info=True)
             # Return an error result in a consistent shape
@@ -177,13 +178,18 @@ class ClaimProcessor:
                 "error": str(e),
             }
 
+        # Debug logging for step results
+        logger.info(f"Final state step_results: {json.dumps(final_state.get('step_results', {}), indent=2, default=str)}")
+        
         # Derive decision based on step results
         decision = "APPROVE"
         decision_reason = "All SOP steps completed successfully."
-        for _, result in final_state["step_results"].items():
+        for step_key, result in final_state.get("step_results", {}).items():
+            logger.info(f"Checking step {step_key} with result: {result}")
             if result.get("status") == "failed":
                 decision = "PEND"
                 decision_reason = f"Step {result.get('step_number')} failed: {result.get('error','Unknown error')}."
+                logger.warning(f"Step {step_key} failed. Decision set to PEND. Reason: {decision_reason}")
                 break
 
         final_state["decision"] = final_state.get("decision") or decision
