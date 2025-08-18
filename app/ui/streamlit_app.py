@@ -1,6 +1,6 @@
 import sys
 import asyncio
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -15,7 +15,6 @@ from app.db.base import get_db
 from app.sops.loader import sop_loader
 from app.workflows.claim_processor import ClaimProcessor
 from app.config.logging_config import logger
-
 
 # --------------------------
 # Streamlit page config + CSS
@@ -51,73 +50,102 @@ if "sop_results" not in st.session_state:
 if "icn" not in st.session_state:
     st.session_state.icn = ""
 
-
 # --------------------------
 # UI helpers
 # --------------------------
-def display_claim_summary(claim_data: Dict[str, Any]):
+def display_claim_summary(claim_data: Optional[Dict[str, Any]]):
+    """Displays a detailed summary of the claim."""
+    if not claim_data or not isinstance(claim_data, dict):
+        st.warning("No claim data to display.")
+        return
+
     with st.expander("Claim Summary", expanded=True):
-        col1, col2, col3 = st.columns(3)
-
+        details = {
+            "ICN": claim_data.get("icn"),
+            "Member": f"{claim_data.get('member_name')} (DOB: {claim_data.get('member_dob')})",
+            "Provider": f"{claim_data.get('provider_name')} ({claim_data.get('provider_speciality')})",
+            "Total Charge": f"${claim_data.get('total_charge', 0):,.2f}",
+            "Primary DX": claim_data.get("primary_dx_code"),
+            "Lines": len(claim_data.get("claim_lines", [])),
+        }
+        
+        # Create a two-column layout
+        col1, col2 = st.columns(2)
+        
+        # Display half of the details in each column
+        items_per_column = (len(details) + 1) // 2
+        
         with col1:
-            st.metric("ICN", claim_data.get("icn", "N/A"))
-            st.metric("Member", claim_data.get("member_name", "N/A"))
-            st.metric("DOB", claim_data.get("member_dob", "N/A"))
-
+            for i, (label, value) in enumerate(details.items()):
+                if i < items_per_column:
+                    st.metric(label, value or "N/A")
+        
         with col2:
-            st.metric("Provider", claim_data.get("provider_name", "N/A"))
-            st.metric("Specialty", claim_data.get("provider_specialty", "N/A"))
-            st.metric("Claim Type", claim_data.get("claim_type", "N/A"))
+            for i, (label, value) in enumerate(details.items()):
+                if i >= items_per_column:
+                    st.metric(label, value or "N/A")
 
-        with col3:
-            st.metric("Total Charge", f"${claim_data.get('total_charge', 0):,.2f}")
-            st.metric("Primary DX", claim_data.get("primary_dx_code", "N/A"))
-            st.metric("Lines", len(claim_data.get("claim_lines", [])))
-
-
-def display_claim_lines(claim_lines: List[Dict[str, Any]]):
+def display_claim_lines(claim_lines: Optional[List[Dict[str, Any]]]):
+    """Displays claim line items in a clear, formatted table."""
     if not claim_lines:
         st.warning("No claim lines found for this claim.")
         return
 
-    display_data = [
-        {
-            "Line #": line.get("line_no", "N/A"),
-            "Procedure": line.get("procedure_code", "N/A"),
-            "Diagnosis": line.get("diagnosis_code", "N/A"),
-            "DOS": f"{line.get('first_dos', 'N/A')} to {line.get('last_dos', 'N/A')}",
-            "POS": line.get("pos_code", "N/A"),
+    line_items = []
+    for line in claim_lines:
+        line_items.append({
+            "Line #": line.get("line_no"),
+            "Procedure": line.get("procedure_code"),
+            "Diagnosis": line.get("diagnosis_code"),
+            "DOS": f"{line.get('first_dos')} to {line.get('last_dos')}",
+            "POS": line.get("pos_code"),
             "Charge": f"${line.get('charge', 0):,.2f}",
-            "Condition Code": line.get("condition_code", "N/A"),
-        }
-        for line in claim_lines
-    ]
+            "Condition": line.get("condition_code") or "N/A",
+        })
 
+    df = pd.DataFrame(line_items)
     st.dataframe(
-        pd.DataFrame(display_data),
+        df,
         use_container_width=True,
         hide_index=True,
+        column_config={
+            "Charge": st.column_config.NumberColumn(format="$%.2f"),
+        },
     )
 
-
-def display_processing_steps(steps: List[Dict[str, Any]]):
+def display_processing_steps(steps: Optional[List[Dict[str, Any]]]):
+    """Displays the processing steps with intuitive icons and clear formatting."""
     st.subheader("Processing Steps")
 
-    for i, step in enumerate(steps):
-        status = step.get("status", "pending").lower()
-        icon = "✅" if status == "completed" else "❌" if status == "failed" else "🔄"
-
-        with st.expander(f"{icon} {step.get('name', f'Step {i+1}')}", expanded=True):
-            st.json(step)
-
-
-def display_decision(decision: Dict[str, Any]):
-    if not decision:
+    if not steps:
+        st.info("No processing steps to display.")
         return
 
-    decision_type = decision.get("type", "").upper()
-    reason = decision.get("reason", "No reason provided.")
+    for i, step in enumerate(steps):
+        status = str(step.get("status", "pending")).lower()
+        
+        icon_map = {"completed": "✅", "failed": "❌", "pending": "🔄"}
+        icon = icon_map.get(status, "❓")
+        
+        step_name = step.get("step", f"Step {i + 1}")
+        
+        with st.expander(f"{icon} {step_name}", expanded=True):
+            details = step.get("details", {})
+            if details:
+                st.json(details)
+            else:
+                st.info("No details available for this step.")
 
+def display_decision_and_details(decision: Optional[Dict[str, Any]]):
+    """Displays the final decision and its details in a formatted box."""
+    if not decision or not isinstance(decision, dict):
+        st.warning("No decision details available.")
+        return
+
+    decision_type = str(decision.get("type") or "PEND").upper()
+    reason = str(decision.get("reason") or "No reason provided.")
+
+    # Color coding for decisions
     if decision_type == "APPROVE":
         st.success(f"## ✅ Claim Approved\n**Reason:** {reason}")
     elif decision_type == "DENY":
@@ -125,150 +153,155 @@ def display_decision(decision: Dict[str, Any]):
     else:
         st.warning(f"## ⏳ Claim Pended\n**Reason:** {reason}")
 
-
 # --------------------------
 # Core async processing
 # --------------------------
-async def process_claim(icn: str, progress_placeholder) -> (Optional[Dict[str, Any]], Optional[Dict[str, Any]]):
+async def process_claim(icn: str, progress_placeholder) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """Processes a claim and returns the final workflow result."""
     try:
         with get_db() as db:
             claim_data = crud.get_claim_with_lines(db, icn)
-            logger.info(f"Claim data: {claim_data}")
             if not claim_data:
                 st.error(f"No claim found with ICN: {icn}")
                 return None, None
 
             condition_codes = crud.get_condition_codes(db, icn)
-            logger.info(f"Condition codes: {condition_codes}")
             if not condition_codes:
                 st.error(f"No condition codes found for claim {icn}")
-                return None, None
+                return claim_data, None
 
-            # Use the async SOP loader method to avoid event loop conflicts
             sop = await sop_loader.get_sop_for_condition_code_async(condition_codes[0])
-            logger.info(f"SOP: {sop}")
             if not sop or not getattr(sop, "entry_point", None):
-                st.error(f"No SOP found or SOP entry point missing for condition code: {condition_codes}")
-                return None, None
+                st.error(f"No SOP found for condition code: {condition_codes}")
+                return claim_data, None
 
             processor = ClaimProcessor(sop)
+            
+            # Option 1: Use the process_claim method directly (recommended)
+            # This ensures the decision is properly set
+            logger.info(f"Processing claim {icn} using ClaimProcessor.process_claim()")
+            final_state = await processor.process_claim(icn)
+            
+            # Display final result
+            progress_placeholder.json(final_state)
+            
+            return claim_data, final_state
+            
+            # Option 2: If you want to keep streaming, uncomment below and comment above
+            """
+            initial_state = {
+                "icn": icn,
+                "sop_code": sop.sop_code,
+                "last_ran_step": None,
+                "step_history": [],
+                "step_results": {},
+                "decision": None,
+                "decision_reason": None,
+                "start_time": datetime.now(UTC),
+                "end_time": None,
+                "error": None,
+            }
 
-            # Stream workflow states to the UI
-            state = None
-            try:
-                async for state in processor.workflow.astream(
-                    {
-                        "icn": icn,
-                        "sop_code": sop.sop_code,
-                        "current_step": sop.entry_point,
-                        "step_history": [],
-                        "step_results": {},
-                        "decision": None,
-                        "decision_reason": None,
-                        "start_time": datetime.utcnow(),
-                        "end_time": None,
-                        "error": None,
-                    }
-                ):
-                    progress_placeholder.json(state)
-                    # small yield to UI
-                    await asyncio.sleep(0.05)
-            except Exception as stream_err:
-                logger.error(f"Workflow stream error for {icn}: {stream_err}", exc_info=True)
-                st.error("An error occurred while executing the workflow.")
-                return None, None
-
-            if not state:
-                st.error("No workflow state was produced.")
-                return None, None
-
-            # Ensure final state is JSON-serializable for session state storage
-            if hasattr(state, "model_dump"):
-                state = state.model_dump()
-            elif hasattr(state, "dict"):
-                state = state.dict()
-
-            return claim_data, state
+            final_state = None
+            async for state in processor.workflow.astream(initial_state):
+                progress_placeholder.json(state)
+                final_state = state
+                await asyncio.sleep(0.1)
+            
+            # Ensure decision is set if missing
+            if final_state and not final_state.get("decision"):
+                logger.warning("Decision not set in final state, deriving from step results")
+                decision = "APPROVE"
+                decision_reason = "All SOP steps completed successfully."
+                
+                for _, result in final_state.get("step_results", {}).items():
+                    if result.get("status") == "failed":
+                        decision = "PEND"
+                        decision_reason = f"Step {result.get('step_number')} failed: {result.get('error', 'Unknown error')}"
+                        break
+                
+                final_state["decision"] = decision
+                final_state["decision_reason"] = decision_reason
+            
+            return claim_data, final_state
+            """
 
     except Exception as e:
         logger.error(f"Error processing claim {icn}: {e}", exc_info=True)
-        st.error(f"An error occurred while processing the claim: {str(e)}")
+        st.error(f"An unexpected error occurred: {e}")
         return None, None
-
 
 # --------------------------
 # Main async UI flow
 # --------------------------
 async def main():
+    """Main function to run the Streamlit application."""
     st.title("📋 Pend Claim Analysis")
 
+    # Sidebar for claim lookup
     with st.sidebar:
         st.header("Claim Lookup")
-        icn = st.text_input("Enter ICN", st.session_state.icn or "")
-
-        process_clicked = st.button(
-            "Process Claim",
-            type="primary",
-            use_container_width=True,
-            disabled=st.session_state.processing,
-        )
-
-        if process_clicked:
-            if not icn:
-                st.error("Please enter an ICN")
-            else:
+        icn_input = st.text_input("Enter ICN", value=st.session_state.get("icn", ""))
+        
+        if st.button("Process Claim", type="primary", use_container_width=True):
+            if icn_input:
+                st.session_state.icn = icn_input.strip()
                 st.session_state.processing = True
-                st.session_state.icn = icn.strip()
                 st.session_state.claim_data = None
                 st.session_state.sop_results = None
-
+                
                 progress_placeholder = st.empty()
                 with st.spinner("Processing claim..."):
-                    claim_data, result = await process_claim(st.session_state.icn, progress_placeholder)
-
-                if claim_data and result:
-                    st.session_state.claim_data = claim_data
-                    st.session_state.sop_results = result
-                    st.success("Claim processed successfully!")
+                    claim_data, results = await process_claim(st.session_state.icn, progress_placeholder)
+                
+                st.session_state.claim_data = claim_data
+                st.session_state.sop_results = results
                 st.session_state.processing = False
+                
+                if results:
+                    st.success("Claim processed successfully!")
+                    logger.info(f"Final results: decision={results.get('decision')}, reason={results.get('decision_reason')}")
+                else:
+                    st.error("Failed to get SOP results.")
+            else:
+                st.error("Please enter an ICN.")
 
-    # Render results if available
-    if st.session_state.get("claim_data") and st.session_state.get("sop_results"):
+    # Main content area
+    if st.session_state.get("processing"):
+        st.info("Processing claim, please wait...")
+    elif st.session_state.get("claim_data") and st.session_state.get("sop_results"):
+        # Display claim summary first
         display_claim_summary(st.session_state.claim_data)
-        display_claim_lines(st.session_state.claim_data.get("claim_lines", []))
+        
+        # Display decision prominently
+        decision_details = {
+            "type": st.session_state.sop_results.get("decision"),
+            "reason": st.session_state.sop_results.get("decision_reason"),
+        }
+        
+        # Debug: Log what we're trying to display
+        logger.info(f"Displaying decision: {decision_details}")
+        display_decision_and_details(decision_details)
+        
+        # Display claim lines
+        display_claim_lines(st.session_state.claim_data.get("claim_lines"))
+        
+        # Display processing steps
         step_history = st.session_state.sop_results.get("step_history", [])
-        display_processing_steps(step_history if isinstance(step_history, list) else [])
-        display_decision(
-            {
-                "type": st.session_state.sop_results.get("decision"),
-                "reason": st.session_state.sop_results.get("decision_reason"),
-            }
-        )
-    elif not st.session_state.processing:
-        st.info("Enter an ICN in the sidebar to begin.")
-
+        display_processing_steps(step_history)
+        
+    elif st.session_state.get("claim_data"):
+        display_claim_summary(st.session_state.claim_data)
+        st.warning("Claim data loaded but no SOP results available.")
+    else:
+        st.info("Enter an ICN in the sidebar to begin analysis.")
 
 # --------------------------
 # Entry point: loop-aware
 # --------------------------
 if __name__ == "__main__":
-    # try:
-    #     loop = asyncio.get_event_loop()
-    #     if loop.is_running():
-    #         # If a loop is already running (some hosting setups), schedule without blocking
-    #         loop.create_task(main())
-    #     else:
-    #         loop.run_until_complete(main())
-    # except RuntimeError:
-    #     # No current loop; create one and run
-    #     loop = asyncio.new_event_loop()
-    #     try:
-    #         asyncio.set_event_loop(loop)
-    #         loop.run_until_complete(main())
-    #     finally:
-    #         try:
-    #             loop.close()
-    #         except Exception:
-    #             pass
-    
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        logger.error(f"An error occurred in the main execution: {e}", exc_info=True)
+        st.error(f"An unexpected error occurred: {e}")

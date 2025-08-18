@@ -6,6 +6,7 @@
 from typing import Dict, Any, List, Optional, TypedDict, Literal
 from datetime import datetime, UTC
 import asyncio
+import json
 
 from langgraph.graph import StateGraph, END
 from langchain_core.runnables import RunnableConfig
@@ -13,6 +14,40 @@ from langchain_core.runnables import RunnableConfig
 from ..core.mcp_client import mcp_langchain_client as mcp_client
 from ..sops.models import SOPDefinition, SOPStep
 from ..config.logging_config import logger
+from langchain_openai import AzureChatOpenAI
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+# Check required environment variables
+required_env_vars = [
+    "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT",
+    "AZURE_OPENAI_API_TYPE", "OPENAI_API_VERSION",
+    "AZURE_OPENAI_DEPLOYMENT_NAME", "MODEL_NAME"
+]
+missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+if missing_vars:
+    error_msg = f"Missing required environment variables: {', '.join(missing_vars)}. Please check your .env file or environment settings."
+    logger.critical(error_msg)
+
+# Set environment variables for the LangChain Azure client library
+os.environ["AZURE_OPENAI_API_KEY"] = os.getenv("AZURE_OPENAI_API_KEY")
+os.environ["AZURE_OPENAI_ENDPOINT"] = os.getenv("AZURE_OPENAI_ENDPOINT")
+os.environ["AZURE_OPENAI_API_TYPE"] = os.getenv("AZURE_OPENAI_API_TYPE")
+
+try:
+    # Initialize the AzureChatOpenAI client
+    llm = AzureChatOpenAI(
+        temperature=0,  # Use low temperature for deterministic, factual responses
+        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+        model_name=os.getenv("MODEL_NAME"),
+        openai_api_version=os.getenv("OPENAI_API_VERSION")
+    )
+    logger.info("AzureChatOpenAI LLM client initialized successfully.")
+except Exception as e:
+    error_msg = f"Failed to initialize Azure OpenAI connection: {e}"
+    logger.critical(error_msg, exc_info=True)
 
 
 class ClaimState(TypedDict):
@@ -49,12 +84,54 @@ class ClaimProcessor:
         self.sop = sop_definition
         self.workflow = self._create_workflow()
 
+    async def _derive_decision(self, state: ClaimState, config: RunnableConfig) -> ClaimState:
+        logger.info(f"Making final decision for SOP {state['sop_code']}")
+
+        prompt = f"""
+    You are a healthcare claims examiner analyzing SOP {state['sop_code']} results.
+
+    SOP Purpose: {getattr(self.sop, 'description', '')}
+
+    Step Results:
+    {json.dumps(state['step_results'], indent=2)}
+
+    Based on the step results, decide:
+    - APPROVE
+    - DENY
+    - PEND
+
+    Output ONLY JSON: {{"decision": "...", "reason": "..."}}
+    """
+
+        try:
+            response = await llm.ainvoke(prompt)
+            logger.info(f"LLM response for decision: {response.content}")
+            response_str = response.content.strip("```json").strip("```")
+            data = json.loads(response_str)
+            logger.info(f"Decision data: {data}")
+            state["decision"] = data.get("decision", "PEND").upper()
+            logger.info(f"Decision: {state['decision']}")
+            state["decision_reason"] = data.get("reason", "No reason provided")
+            logger.info(f"Decision reason: {state['decision_reason']}")
+        except Exception as e:
+            logger.error(f"Decision agent failed: {e}", exc_info=True)
+            state["decision"] = "PEND"
+            state["decision_reason"] = f"Decision agent error: {str(e)}"
+
+        state["end_time"] = datetime.now(UTC)
+
+        return state
+
+
     def _create_workflow(self):
         """
         Build a LangGraph workflow with one node per numeric step_number.
         Node names will be "step_<number>" to keep them unique and addressable.
         """
         workflow = StateGraph(ClaimState)
+
+        # Add derive_decision node
+        workflow.add_node("derive_decision", self._derive_decision)
 
         # Create nodes for each step
         for s in self.sop.steps:
@@ -73,7 +150,10 @@ class ClaimProcessor:
                 next_node = f"step_{ordered[i + 1]}"
                 workflow.add_edge(current_node, next_node)
             else:
-                workflow.add_edge(current_node, END)
+                # Last step goes to derive_decision
+                workflow.add_edge(current_node, "derive_decision")
+        
+        workflow.add_edge("derive_decision", END)
 
         return workflow.compile()
 
@@ -181,21 +261,6 @@ class ClaimProcessor:
         # Debug logging for step results
         logger.info(f"Final state step_results: {json.dumps(final_state.get('step_results', {}), indent=2, default=str)}")
         
-        # Derive decision based on step results
-        decision = "APPROVE"
-        decision_reason = "All SOP steps completed successfully."
-        for step_key, result in final_state.get("step_results", {}).items():
-            logger.info(f"Checking step {step_key} with result: {result}")
-            if result.get("status") == "failed":
-                decision = "PEND"
-                decision_reason = f"Step {result.get('step_number')} failed: {result.get('error','Unknown error')}."
-                logger.warning(f"Step {step_key} failed. Decision set to PEND. Reason: {decision_reason}")
-                break
-
-        final_state["decision"] = final_state.get("decision") or decision
-        final_state["decision_reason"] = final_state.get("decision_reason") or decision_reason
-        final_state["end_time"] = final_state.get("end_time") or datetime.now(UTC)
-
         return final_state
 
 
