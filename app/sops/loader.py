@@ -86,8 +86,7 @@ class SOPLoader:
                     sop_code=code,
                     title=f"SOP {code}",
                     steps=steps,
-                    # Adjust or extend fields as needed by your SOPDefinition
-                    condition_codes=[],  # If you store this elsewhere, fetch/populate here
+                    condition_codes=[],  
                 )
                 sop_defs[code] = sop_def
             except Exception as e:
@@ -127,42 +126,49 @@ class SOPLoader:
         return self._sop_definitions.get(sop_code.upper())
 
     def get_sop_for_condition_code(self, condition_code: str) -> Optional[SOPDefinition]:
+
         """Get the appropriate SOP for a given condition code."""
         if not self._sop_definitions:
             self.load_all()
 
+        # Normalize to uppercase
         condition_code = condition_code.upper()
 
-        # Exact match
-        for sop in self._sop_definitions.values():
-            if condition_code in getattr(sop, "condition_codes", []) or []:
-                return sop
+        # Direct match since SOP_CODE == CONDITION_CODE
+        sop = self._sop_definitions.get(condition_code)
+        if sop:
+            return sop
 
-        # Prefix match (e.g., B00* matches B007)
+        # Fallback: prefix wildcards (retain only if needed)
         for sop in self._sop_definitions.values():
             for code_pattern in getattr(sop, "condition_codes", []) or []:
-                if code_pattern.endswith('*') and condition_code.startswith(code_pattern[:-1]):
+                if code_pattern.endswith("*") and condition_code.startswith(code_pattern[:-1]):
                     return sop
 
         return None
+
 
     async def get_sop_for_condition_code_async(self, condition_code: str) -> Optional[SOPDefinition]:
         """Async variant for condition code lookup."""
         if not self._sop_definitions:
             await self.load_all_async()
 
+        # Normalize to uppercase
         condition_code = condition_code.upper()
 
-        for sop in self._sop_definitions.values():
-            if condition_code in getattr(sop, "condition_codes", []) or []:
-                return sop
+        # Direct match since SOP_CODE == CONDITION_CODE
+        sop = self._sop_definitions.get(condition_code)
+        if sop:
+            return sop
 
+        # Fallback: prefix wildcards (keep only if still needed)
         for sop in self._sop_definitions.values():
             for code_pattern in getattr(sop, "condition_codes", []) or []:
-                if code_pattern.endswith('*') and condition_code.startswith(code_pattern[:-1]):
+                if code_pattern.endswith("*") and condition_code.startswith(code_pattern[:-1]):
                     return sop
 
         return None
+
 
     def reload(self) -> Dict[str, SOPDefinition]:
         """Reload all SOP definitions from MCP."""

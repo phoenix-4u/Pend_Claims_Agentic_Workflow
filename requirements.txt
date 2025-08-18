@@ -34,3 +34,8 @@ openai>=1.0.0
 fastmcp
 langchain-mcp-adapters
 langchain[openai]
+
+pdfplumber
+langchain_huggingface
+sentence_transformers
+faiss-cpu
