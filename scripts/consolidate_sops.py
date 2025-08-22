@@ -26,7 +26,7 @@ class SOPConsolidator:
     
     def connect(self):
         """Connect to the SQLite database."""
-        self.conn = sqlite3.connect(self.output_db, timeout=15)
+        self.conn = sqlite3.connect(self.output_db, timeout=30)
         self.conn.row_factory = sqlite3.Row  # Enable column access by name
         self.cur = self.conn.cursor()
         logger.info(f"Connected to database: {self.output_db}")

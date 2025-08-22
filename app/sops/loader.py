@@ -70,23 +70,25 @@ class SOPLoader:
             steps: List[SOPStep] = []
             for sr in steps_rows:
                 try:
+                    query_val = sr.get("query")
+                    # Replace NaN with None, as NaN is not a valid Pydantic string
+                    if isinstance(query_val, float) and query_val != query_val:
+                        query_val = None
+
                     step = SOPStep(
                         step_number=sr.get("step_number"),
                         description=sr.get("description"),
-                        query=sr.get("query"),
+                        query=query_val,
                     )
                     steps.append(step)
                 except Exception as e:
                     logger.error(f"Error creating SOPStep for {code}: {e}", exc_info=True)
 
-            # Build SOPDefinition. If your model includes extra fields (e.g., title, condition_codes),
-            # fill them accordingly or set reasonable defaults.
+            # Build SOPDefinition.
             try:
                 sop_def = SOPDefinition(
                     sop_code=code,
-                    title=f"SOP {code}",
                     steps=steps,
-                    condition_codes=[],  
                 )
                 sop_defs[code] = sop_def
             except Exception as e:
@@ -125,49 +127,7 @@ class SOPLoader:
             await self.load_all_async()
         return self._sop_definitions.get(sop_code.upper())
 
-    def get_sop_for_condition_code(self, condition_code: str) -> Optional[SOPDefinition]:
-
-        """Get the appropriate SOP for a given condition code."""
-        if not self._sop_definitions:
-            self.load_all()
-
-        # Normalize to uppercase
-        condition_code = condition_code.upper()
-
-        # Direct match since SOP_CODE == CONDITION_CODE
-        sop = self._sop_definitions.get(condition_code)
-        if sop:
-            return sop
-
-        # Fallback: prefix wildcards (retain only if needed)
-        for sop in self._sop_definitions.values():
-            for code_pattern in getattr(sop, "condition_codes", []) or []:
-                if code_pattern.endswith("*") and condition_code.startswith(code_pattern[:-1]):
-                    return sop
-
-        return None
-
-
-    async def get_sop_for_condition_code_async(self, condition_code: str) -> Optional[SOPDefinition]:
-        """Async variant for condition code lookup."""
-        if not self._sop_definitions:
-            await self.load_all_async()
-
-        # Normalize to uppercase
-        condition_code = condition_code.upper()
-
-        # Direct match since SOP_CODE == CONDITION_CODE
-        sop = self._sop_definitions.get(condition_code)
-        if sop:
-            return sop
-
-        # Fallback: prefix wildcards (keep only if still needed)
-        for sop in self._sop_definitions.values():
-            for code_pattern in getattr(sop, "condition_codes", []) or []:
-                if code_pattern.endswith("*") and condition_code.startswith(code_pattern[:-1]):
-                    return sop
-
-        return None
+    
 
 
     def reload(self) -> Dict[str, SOPDefinition]:

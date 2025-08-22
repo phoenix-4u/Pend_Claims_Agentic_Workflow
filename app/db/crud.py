@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 
 from ..models.claims import ClaimHeader, ClaimLine, SOPResult
+from ..models.sops import SOP
 from ..config.logging_config import logger
 
 class ClaimCRUD:
@@ -107,3 +108,33 @@ class ClaimCRUD:
 
 # Create an instance for easier importing
 crud = ClaimCRUD()
+
+class SOPCRUD:
+    """CRUD operations for SOP data."""
+    
+    @staticmethod
+    def create_sop(
+        db: Session,
+        sop_code: str,
+        step_number: int,
+        description: str,
+        query: Optional[str]
+    ) -> SOP:
+        """Create a new SOP step."""
+        try:
+            sop = SOP(
+                sop_code=sop_code,
+                step_number=step_number,
+                description=description,
+                query=query
+            )
+            db.add(sop)
+            db.commit()
+            db.refresh(sop)
+            return sop
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error creating SOP for SOP Code {sop_code}: {e}")
+            raise
+
+sop_crud = SOPCRUD()

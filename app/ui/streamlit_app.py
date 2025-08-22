@@ -10,9 +10,10 @@ import pandas as pd
 # Make top-level project importable
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from app.db.crud import crud
+from app.db.crud import crud, sop_crud
 from app.db.base import get_db
 from app.sops.loader import sop_loader
+from app.sops.models import SOPStep
 from app.workflows.claim_processor import ClaimProcessor
 from app.config.logging_config import logger
 
@@ -153,6 +154,66 @@ def display_decision_and_details(decision: Optional[Dict[str, Any]]):
     else:
         st.warning(f"## ⏳ Claim Pended\n**Reason:** {reason}")
 
+def display_sop_upload_page():
+    """Displays the page for uploading new SOPs."""
+    st.header("Upload a New SOP")
+
+    with st.form("sop_upload_form"):
+        sop_code = st.text_input("SOP Code (e.g., B008)")
+        
+        uploaded_file = st.file_uploader(
+            "Upload SOP file (.xlsx or .csv)",
+            type=["xlsx", "csv"]
+        )
+        
+        submitted = st.form_submit_button("Upload SOP")
+
+        if submitted:
+            if not all([sop_code, uploaded_file]):
+                st.error("Please fill in all fields and upload a file.")
+                return
+
+            try:
+                if uploaded_file.name.endswith(".csv"):
+                    df = pd.read_csv(uploaded_file)
+                else:
+                    df = pd.read_excel(uploaded_file)
+
+                required_columns = {"sop_code", "step_number", "description", "query"}
+                
+                if not required_columns.issubset(df.columns):
+                    st.error(f"File must contain the following columns: {', '.join(required_columns)} found {', '.join(df.columns)}")
+                    return
+
+                with get_db() as db:
+                    for index, row in df.iterrows():
+                        try:
+                            # Convert row to dict and handle NaN values
+                            row_data = row.to_dict()
+                            # Replace NaN/None values with empty strings
+                            for key, value in row_data.items():
+                                if pd.isna(value) or value is None:
+                                    row_data[key] = ""
+                            
+                            # Create SOP step with cleaned data
+                            sop_step = SOPStep(**row_data)
+                            sop_crud.create_sop(
+                                db=db,
+                                sop_code=sop_code,
+                                step_number=sop_step.step_number,
+                                description=sop_step.description,
+                                query=sop_step.query or ""  # Ensure query is never None
+                            )
+                        except Exception as e:
+                            st.error(f"Error processing row {index + 1}: {e}")
+                            db.rollback()
+                            return
+                
+                st.success(f"SOP '{sop_code}' uploaded successfully with {len(df)} steps.")
+
+            except Exception as e:
+                st.error(f"An error occurred while processing the file: {e}")
+
 # --------------------------
 # Core async processing
 # --------------------------
@@ -236,65 +297,74 @@ async def process_claim(icn: str, progress_placeholder) -> tuple[Optional[Dict[s
 # --------------------------
 async def main():
     """Main function to run the Streamlit application."""
-    st.title("📋 Pend Claim Analysis")
+    st.title("📋 Pend Claim Processor")
 
-    # Sidebar for claim lookup
+    # Sidebar for navigation
     with st.sidebar:
-        st.header("Claim Lookup")
-        icn_input = st.text_input("Enter ICN", value=st.session_state.get("icn", ""))
-        
-        if st.button("Process Claim", type="primary", use_container_width=True):
-            if icn_input:
-                st.session_state.icn = icn_input.strip()
-                st.session_state.processing = True
-                st.session_state.claim_data = None
-                st.session_state.sop_results = None
-                
-                progress_placeholder = st.empty()
-                with st.spinner("Processing claim..."):
-                    claim_data, results = await process_claim(st.session_state.icn, progress_placeholder)
-                
-                st.session_state.claim_data = claim_data
-                st.session_state.sop_results = results
-                st.session_state.processing = False
-                
-                if results:
-                    st.success("Claim processed successfully!")
-                    logger.info(f"Final results: decision={results.get('decision')}, reason={results.get('decision_reason')}")
-                else:
-                    st.error("Failed to get SOP results.")
-            else:
-                st.error("Please enter an ICN.")
+        st.header("Navigation")
+        page = st.radio("Choose a page", ["Process Claim", "Upload SOP"])
 
-    # Main content area
-    if st.session_state.get("processing"):
-        st.info("Processing claim, please wait...")
-    elif st.session_state.get("claim_data") and st.session_state.get("sop_results"):
-        # Display claim summary first
-        display_claim_summary(st.session_state.claim_data)
-        
-        # Display decision prominently
-        decision_details = {
-            "type": st.session_state.sop_results.get("decision"),
-            "reason": st.session_state.sop_results.get("decision_reason"),
-        }
-        
-        # Debug: Log what we're trying to display
-        logger.info(f"Displaying decision: {decision_details}")
-        display_decision_and_details(decision_details)
-        
-        # Display claim lines
-        display_claim_lines(st.session_state.claim_data.get("claim_lines"))
-        
-        # Display processing steps
-        step_history = st.session_state.sop_results.get("step_history", [])
-        display_processing_steps(step_history)
-        
-    elif st.session_state.get("claim_data"):
-        display_claim_summary(st.session_state.claim_data)
-        st.warning("Claim data loaded but no SOP results available.")
-    else:
-        st.info("Enter an ICN in the sidebar to begin analysis.")
+    if page == "Process Claim":
+        # Sidebar for claim lookup
+        with st.sidebar:
+            st.header("Claim Lookup")
+            icn_input = st.text_input("Enter ICN", value=st.session_state.get("icn", ""))
+            
+            if st.button("Process Claim", type="primary", use_container_width=True):
+                if icn_input:
+                    st.session_state.icn = icn_input.strip()
+                    st.session_state.processing = True
+                    st.session_state.claim_data = None
+                    st.session_state.sop_results = None
+                    
+                    progress_placeholder = st.empty()
+                    with st.spinner("Processing claim..."):
+                        claim_data, results = await process_claim(st.session_state.icn, progress_placeholder)
+                    
+                    st.session_state.claim_data = claim_data
+                    st.session_state.sop_results = results
+                    st.session_state.processing = False
+                    
+                    if results:
+                        st.success("Claim processed successfully!")
+                        logger.info(f"Final results: decision={results.get('decision')}, reason={results.get('decision_reason')}")
+                    else:
+                        st.error("Failed to get SOP results.")
+                else:
+                    st.error("Please enter an ICN.")
+
+        # Main content area
+        if st.session_state.get("processing"):
+            st.info("Processing claim, please wait...")
+        elif st.session_state.get("claim_data") and st.session_state.get("sop_results"):
+            # Display claim summary first
+            display_claim_summary(st.session_state.claim_data)
+            
+            # Display decision prominently
+            decision_details = {
+                "type": st.session_state.sop_results.get("decision"),
+                "reason": st.session_state.sop_results.get("decision_reason"),
+            }
+            
+            # Debug: Log what we're trying to display
+            logger.info(f"Displaying decision: {decision_details}")
+            display_decision_and_details(decision_details)
+            
+            # Display claim lines
+            display_claim_lines(st.session_state.claim_data.get("claim_lines"))
+            
+            # Display processing steps
+            step_history = st.session_state.sop_results.get("step_history", [])
+            display_processing_steps(step_history)
+            
+        elif st.session_state.get("claim_data"):
+            display_claim_summary(st.session_state.claim_data)
+            st.warning("Claim data loaded but no SOP results available.")
+        else:
+            st.info("Enter an ICN in the sidebar to begin analysis.")
+    
+    elif page == "Upload SOP":
+        display_sop_upload_page()
 
 # --------------------------
 # Entry point: loop-aware

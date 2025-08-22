@@ -17,13 +17,7 @@ class SOPStep(BaseModel):
 class SOPDefinition(BaseModel):
     """Definition of a Standard Operating Procedure constructed from step rows."""
     sop_code: str = Field(..., description="Unique identifier for the SOP (e.g., B007, F027)")
-    title: str = Field(..., description="Human-readable title for the SOP")
     steps: List[SOPStep] = Field(..., description="Ordered list of steps for the SOP")
-    # Optional metadata used by your application
-    condition_codes: List[str] = Field(
-        default_factory=list,
-        description="List of condition codes this SOP applies to (for matching)"
-    )
     # Entry point for the workflow engine. For numeric step flows, this is typically the first step_number.
     # Your Streamlit app expects `entry_point` to exist on SOPDefinition.
     entry_point: int = Field(

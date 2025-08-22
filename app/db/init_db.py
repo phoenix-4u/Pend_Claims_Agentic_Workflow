@@ -10,6 +10,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from app.db.base import Base, engine, SessionLocal
 from app.models.claims import ClaimHeader, ClaimLine, SOPResult
+from app.models.sops import SOP
 from app.config.settings import settings
 from app.config.logging_config import logger
 
