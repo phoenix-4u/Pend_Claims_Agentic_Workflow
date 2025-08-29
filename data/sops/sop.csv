@@ -1,5 +1,5 @@
-sop_code,step_number,description,query
-B007,1,Access the Code section of the Medical Policy Database and search to identify the Procedure Code on the claim to determine if the Procedure Code is eligible for the Place of Service (POS) present on the claim
-B007,2,Compare the Place of Service in the Medical Policy Database to what is coded on HRUK application,SELECT DISTINCT r.pos_allowed FROM hruk r WHERE r.procedure_code IN (SELECT procedure_code FROM claim_lines WHERE icn = '{icn}');
-B007,3,If the HRUK application and the Medical Policy Database reflect the same information, then Examiner denies the claim
-B007,4,If the Medical Policy Database has the Place of Service listed and the HRUK does not then submit a Plog for updates
+sop_code|step_number|description|query
+B007|1|Access the Code section of the Medical Policy Database and search to identify the Procedure Code on the claim to determine if the Procedure Code is eligible for the Place of Service (POS) present on the claim
+B007|2|Compare the Place of Service in the Medical Policy Database to what is coded on HRUK application|SELECT DISTINCT r.pos_allowed FROM hruk r WHERE r.procedure_code IN (SELECT procedure_code FROM claim_lines WHERE icn = '{icn}');
+B007|3|If the HRUK application and the Medical Policy Database reflect the same information, then Examiner denies the claim
+B007|4|If the Medical Policy Database has the Place of Service listed and the HRUK does not then submit a Plog for updates

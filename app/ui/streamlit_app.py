@@ -175,7 +175,7 @@ def display_sop_upload_page():
 
             try:
                 if uploaded_file.name.endswith(".csv"):
-                    df = pd.read_csv(uploaded_file)
+                    df = pd.read_csv(uploaded_file, delimiter="|")
                 else:
                     df = pd.read_excel(uploaded_file)
 
@@ -210,6 +210,13 @@ def display_sop_upload_page():
                             return
                 
                 st.success(f"SOP '{sop_code}' uploaded successfully with {len(df)} steps.")
+                
+                # Reload SOPs from the database to reflect changes
+                try:
+                    sop_loader.reload()
+                    # st.info("SOP definitions have been reloaded.")
+                except Exception as reload_e:
+                    st.error(f"SOPs uploaded but failed to reload: {reload_e}")
 
             except Exception as e:
                 st.error(f"An error occurred while processing the file: {e}")
@@ -231,7 +238,7 @@ async def process_claim(icn: str, progress_placeholder) -> tuple[Optional[Dict[s
                 st.error(f"No condition codes found for claim {icn}")
                 return claim_data, None
 
-            sop = await sop_loader.get_sop_for_condition_code_async(condition_codes[0])
+            sop = await sop_loader.get_sop_async(condition_codes[0])
             if not sop or not getattr(sop, "entry_point", None):
                 st.error(f"No SOP found for condition code: {condition_codes}")
                 return claim_data, None
