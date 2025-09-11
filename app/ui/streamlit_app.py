@@ -148,9 +148,9 @@ def display_decision_and_details(decision: Optional[Dict[str, Any]]):
 
     # Color coding for decisions
     if decision_type == "APPROVE":
-        st.success(f"## ✅ Claim Approved\n**Reason:** {reason}")
+        st.success(f"## ✅ AI Recommendation: Approve the claim\n**Reason:** {reason}")
     elif decision_type == "DENY":
-        st.error(f"## ❌ Claim Denied\n**Reason:** {reason}")
+        st.error(f"## ❌ AI Recommendation: Deny the claim\n**Reason:** {reason}")
     else:
         st.warning(f"## ⏳ Claim Pended\n**Reason:** {reason}")
 
@@ -355,7 +355,18 @@ async def main():
             
             # Debug: Log what we're trying to display
             logger.info(f"Displaying decision: {decision_details}")
-            display_decision_and_details(decision_details)
+            
+
+            # Add Approve/Deny buttons
+            col1, col2 = st.columns([6, 1])
+            with col1:
+                display_decision_and_details(decision_details)
+            with col2:
+                if st.button("Approve", type="primary", use_container_width=True):
+                    st.success(f"ICN: {st.session_state.icn} has been updated as approved.")
+            # with col3:
+                if st.button("Deny", type="secondary", use_container_width=True):
+                    st.error(f"ICN: {st.session_state.icn} has been updated as denied.")
             
             # Display claim lines
             display_claim_lines(st.session_state.claim_data.get("claim_lines"))
