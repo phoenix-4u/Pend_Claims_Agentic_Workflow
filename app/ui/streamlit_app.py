@@ -16,6 +16,7 @@ from app.sops.loader import sop_loader
 from app.sops.models import SOPStep
 from app.workflows.claim_processor import ClaimProcessor
 from app.config.logging_config import logger
+from app.ui.batch_processing_page import display_batch_processing_page
 
 # --------------------------
 # Streamlit page config + CSS
@@ -238,10 +239,20 @@ async def process_claim(icn: str, progress_placeholder) -> tuple[Optional[Dict[s
                 st.error(f"No condition codes found for claim {icn}")
                 return claim_data, None
 
-            sop = await sop_loader.get_sop_async(condition_codes[0])
+            # Try to find an SOP for any of the condition codes
+            sop = None
+            found_code = None
+            for code in condition_codes:
+                sop = await sop_loader.get_sop_async(code)
+                if sop and getattr(sop, "entry_point", None):
+                    found_code = code
+                    break
+
             if not sop or not getattr(sop, "entry_point", None):
-                st.error(f"No SOP found for condition code: {condition_codes}")
+                st.error(f"No SOP found for condition codes: {condition_codes}")
                 return claim_data, None
+
+            logger.info(f"Found SOP {found_code} for claim {icn}")
 
             processor = ClaimProcessor(sop)
             
@@ -309,9 +320,9 @@ async def main():
     # Sidebar for navigation
     with st.sidebar:
         st.header("Navigation")
-        page = st.radio("Choose a page", ["Process Claim", "Upload SOP"])
+        page = st.radio("Choose a page", ["Process Single Claim", "Batch Processing", "Upload SOP"])
 
-    if page == "Process Claim":
+    if page == "Process Single Claim":
         # Sidebar for claim lookup
         with st.sidebar:
             st.header("Claim Lookup")
@@ -364,7 +375,6 @@ async def main():
             with col2:
                 if st.button("Approve", type="primary", use_container_width=True):
                     st.success(f"ICN: {st.session_state.icn} has been updated as approved.")
-            # with col3:
                 if st.button("Deny", type="secondary", use_container_width=True):
                     st.error(f"ICN: {st.session_state.icn} has been updated as denied.")
             
@@ -380,6 +390,14 @@ async def main():
             st.warning("Claim data loaded but no SOP results available.")
         else:
             st.info("Enter an ICN in the sidebar to begin analysis.")
+
+    elif page == "Batch Processing":
+        display_batch_processing_page(
+            display_claim_summary,
+            display_decision_and_details,
+            display_claim_lines,
+            display_processing_steps,
+        )
     
     elif page == "Upload SOP":
         display_sop_upload_page()

@@ -1,160 +1,152 @@
-"""Script to seed the database with sample claim data for testing."""
 import sys
-import os
 from pathlib import Path
-from datetime import datetime, timedelta
-import random
+import logging
 
-# Add the project root to the Python path
+# Add project root to the Python path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine
+from app.db.base import get_db, Base, engine
+from app.models.claims import ClaimHeader, ClaimLine, SOPResult, ClaimProcessedLine, ClaimProcessingStep
+from sqlalchemy.orm import Session
 
-from app.db.base import Base
-from app.models.claims import ClaimHeader, ClaimLine
-from app.config.settings import settings
-from app.config.logging_config import logger
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Sample data
-SAMPLE_MEMBERS = [
-    {"id": "M1001", "name": "John Doe", "dob": "1980-05-15", "gender": "M"},
-    {"id": "M1002", "name": "Jane Smith", "dob": "1975-09-22", "gender": "F"},
-    {"id": "M1003", "name": "Robert Johnson", "dob": "1990-03-10", "gender": "M"},
-]
+def clear_data(db: Session):
+    """Clears all data from the relevant tables."""
+    logger.info("Clearing existing data...")
+    db.query(ClaimProcessingStep).delete()
+    db.query(ClaimProcessedLine).delete()
+    db.query(SOPResult).delete()
+    db.query(ClaimLine).delete()
+    db.query(ClaimHeader).delete()
+    db.commit()
+    logger.info("Data cleared.")
 
-SAMPLE_PROVIDERS = [
-    {"id": "P2001", "name": "City Medical Group", "type": "GROUP_PRACTICE", "specialty": "FAMILY_MEDICINE"},
-    {"id": "P2002", "name": "Downtown Physical Therapy", "type": "PHYSICAL_THERAPY", "specialty": "PHYSICAL_THERAPY"},
-    {"id": "P2003", "name": "Advanced Radiology", "type": "DIAGNOSTIC", "specialty": "RADIOLOGY"},
-]
+def seed_data(db: Session):
+    """Seeds the database with mock claim data."""
+    logger.info("Seeding data...")
 
-SAMPLE_PROCEDURES = [
-    {"code": "97110", "desc": "Therapeutic exercises"},
-    {"code": "97112", "desc": "Neuromuscular reeducation"},
-    {"code": "97140", "desc": "Manual therapy"},
-    {"code": "99213", "desc": "Office visit, established patient"},
-    {"code": "70450", "desc": "CT head/brain without contrast"},
-]
-
-SAMPLE_DIAGNOSES = [
-    {"code": "M54.5", "desc": "Low back pain"},
-    {"code": "M54.9", "desc": "Dorsalgia, unspecified"},
-    {"code": "M25.551", "desc": "Pain in right hip"},
-    {"code": "S72.001A", "desc": "Fracture of unspecified part of neck of right femur"},
-]
-
-def generate_sample_claims(count: int = 5):
-    """Generate sample claim data."""
-    claims = []
-    
-    for i in range(1, count + 1):
-        member = random.choice(SAMPLE_MEMBERS)
-        provider = random.choice(SAMPLE_PROVIDERS)
+    # Mock data similar to the original frontend mock data
+    claims_to_create = []
+    for i in range(1, 26):
+        icn = f"ICN{1000 + i}"
+        pend_code = "B007" if i % 2 == 0 else "F027"
         
-        # Generate claim header
-        icn = f"ICN{1000000 + i}"
-        claim = {
-            "icn": icn,
-            "claim_type": random.choice(["OUTPATIENT", "INPATIENT", "EMERGENCY"]),
-            "member_id": member["id"],
-            "member_name": member["name"],
-            "member_dob": member["dob"],
-            "member_gender": member["gender"],
-            "provider_number": provider["id"],
-            "provider_name": provider["name"],
-            "provider_type": provider["type"],
-            "provider_specialty": provider["specialty"],
-            "total_charge": 0,  # Will be updated with line items
-            "primary_dx_code": random.choice(SAMPLE_DIAGNOSES)["code"],
-            "claim_lines": []
-        }
+        header = ClaimHeader(
+            icn=icn,
+            member_name=f"Member Name {i}",
+            member_dob="1980-01-15",
+            provider_name=f"Provider Name {i}",
+            provider_speciality="Cardiology",
+            total_charge=5000.00 + (i * 100),
+            primary_dx_code="I25.10",
+        )
         
-        # Generate claim lines (1-5 per claim)
-        num_lines = random.randint(1, 5)
-        total_charge = 0
+        line = ClaimLine(
+            icn=icn,
+            line_no=1,
+            procedure_code="99214",
+            diagnosis_code="I25.10",
+            first_dos="2023-10-01",
+            last_dos="2023-10-01",
+            pos_code="11",
+            charge=5000.00 + (i * 100),
+            condition_code=pend_code,
+        )
         
-        for j in range(1, num_lines + 1):
-            procedure = random.choice(SAMPLE_PROCEDURES)
-            diagnosis = random.choice(SAMPLE_DIAGNOSES)
-            units = random.randint(1, 4)
-            charge = round(random.uniform(50, 500) * units, 2)
-            total_charge += charge
-            
-            # Random date within the last 30 days
-            service_date = (datetime.now() - timedelta(days=random.randint(1, 30))).strftime("%Y-%m-%d")
-            
-            claim_line = {
-                "icn": icn,
-                "line_no": j,
-                "diagnosis_code": diagnosis["code"],
-                "procedure_code": procedure["code"],
-                "first_dos": service_date,
-                "last_dos": service_date,
-                "type_of_service": "PHYSICAL_THERAPY" if "97" in procedure["code"][:2] else "OFFICE_VISIT",
-                "pos_code": "11",  # Office
-                "provider_number": provider["id"],
-                "charge": charge,
-                "allowed_amount": round(charge * 0.8, 2),  # 80% of charge
-                "deductible": round(charge * 0.1, 2),  # 10% of charge
-                "coinsurance": round(charge * 0.1, 2),  # 10% of charge
-                "copay": 20.00 if random.random() > 0.7 else 0.00,  # 30% chance of copay
-                "condition_code": "B007" if "97" in procedure["code"][:2] else ""
-            }
-            
-            claim["claim_lines"].append(claim_line)
-        
-        # Update total charge
-        claim["total_charge"] = total_charge
-        claims.append(claim)
-    
-    return claims
+        header.claim_lines.append(line)
+        claims_to_create.append(header)
 
-def seed_database():
-    """Seed the database with sample data."""
-    # Create database engine
-    engine = create_engine(settings.DATABASE_URL)
-    
-    # Create tables if they don't exist
+    db.add_all(claims_to_create)
+    db.commit()
+    logger.info(f"Successfully seeded {len(claims_to_create)} claims.")
+
+def seed_processed_claims(db: Session):
+    """Seeds the database with mock processed claim data."""
+    logger.info("Seeding processed claims...")
+
+    processed_claims_to_create = [
+        ClaimProcessedLine(
+            icn=f"ICN{1000 + i}",
+            sop_code="B007" if i % 2 == 0 else "F027",
+            decision="APPROVE" if i % 3 == 0 else "DENY",
+            decision_reason="Claim meets all criteria." if i % 3 == 0 else "Claim does not meet criteria.",
+        )
+        for i in range(1, 26)
+    ]
+
+    db.add_all(processed_claims_to_create)
+    db.commit()
+    logger.info(f"Successfully seeded {len(processed_claims_to_create)} processed claims.")
+
+def seed_processing_steps(db: Session):
+    """Seeds the database with mock claim processing steps."""
+    logger.info("Seeding processing steps...")
+    steps_to_create = []
+    for i in range(1, 26):
+        icn = f"ICN{1000 + i}"
+        sop_code = "B007" if i % 2 == 0 else "F027"
+        decision = "APPROVE" if i % 3 == 0 else "DENY"
+
+        steps_to_create.extend([
+            ClaimProcessingStep(
+                icn=icn,
+                sop_code=sop_code,
+                step_number=1,
+                description="Initial Validation",
+                status="completed",
+                timestamp="2023-10-27T10:00:00Z",
+                query="SELECT * FROM claim_headers WHERE icn=:icn",
+                data='{"result": "valid"}',
+                row_count=1,
+                execution_time_ms=15.0,
+            ),
+            ClaimProcessingStep(
+                icn=icn,
+                sop_code=sop_code,
+                step_number=2,
+                description="Check Member Eligibility",
+                status="completed",
+                timestamp="2023-10-27T10:00:05Z",
+                query="SELECT * FROM members WHERE member_id=:id",
+                data='{"eligible": true}',
+                row_count=1,
+                execution_time_ms=25.0,
+            ),
+            ClaimProcessingStep(
+                icn=icn,
+                sop_code=sop_code,
+                step_number=3,
+                description="Medical Necessity Review",
+                status="failed" if decision == "DENY" else "completed",
+                timestamp="2023-10-27T10:00:10Z",
+                query="SELECT * FROM medical_policies WHERE code=:code",
+                data='{"policy": "not_covered"}' if decision == "DENY" else '{"policy": "covered"}',
+                row_count=0 if decision == "DENY" else 1,
+                execution_time_ms=50.0,
+                error="Procedure not covered under policy" if decision == "DENY" else None,
+            ),
+        ])
+    db.add_all(steps_to_create)
+    db.commit()
+    logger.info(f"Successfully seeded {len(steps_to_create)} processing steps.")
+
+def main():
+    """Main function to run the seeding process."""
+    logger.info("Initializing database and tables...")
+    # This ensures tables are created if they don't exist
     Base.metadata.create_all(bind=engine)
     
-    # Create a session
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    db = SessionLocal()
-    
-    try:
-        # Clear existing data
-        db.query(ClaimLine).delete()
-        db.query(ClaimHeader).delete()
-        db.commit()
-        
-        # Generate sample claims
-        claims = generate_sample_claims(10)
-        
-        # Insert claims
-        for claim_data in claims:
-            # Create claim header
-            header_data = {k: v for k, v in claim_data.items() if k != "claim_lines"}
-            claim_header = ClaimHeader(**header_data)
-            db.add(claim_header)
-            
-            # Create claim lines
-            for line_data in claim_data["claim_lines"]:
-                claim_line = ClaimLine(**line_data)
-                db.add(claim_line)
-            
-            db.commit()
-            
-            logger.info(f"Added claim {claim_header.icn} with {len(claim_data['claim_lines'])} lines")
-        
-        logger.info("Database seeded successfully!")
-        
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error seeding database: {e}")
-        raise
-    finally:
-        db.close()
+    with get_db() as db:
+        try:
+            clear_data(db)
+            seed_data(db)
+            seed_processed_claims(db)
+            seed_processing_steps(db)
+        finally:
+            db.close()
 
 if __name__ == "__main__":
-    seed_database()
+    main()

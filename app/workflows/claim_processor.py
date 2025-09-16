@@ -14,6 +14,8 @@ from langchain_core.runnables import RunnableConfig
 from ..core.mcp_client import mcp_langchain_client as mcp_client
 from ..sops.models import SOPDefinition, SOPStep
 from ..config.logging_config import logger
+from ..db.crud import crud
+from ..db.base import get_db
 from langchain_openai import AzureChatOpenAI
 from dotenv import load_dotenv
 import os
@@ -213,6 +215,19 @@ class ClaimProcessor:
                 "details": exec_result,
             })
             state["last_ran_step"] = f"Step {step.step_number}"
+
+            # Save the step result to the database
+            try:
+                with get_db() as db:
+                    crud.create_claim_processing_step(
+                        db=db,
+                        icn=state["icn"],
+                        sop_code=self.sop.sop_code,
+                        step_data=exec_result
+                    )
+            except Exception as e:
+                logger.error(f"Failed to save processing step for ICN {state['icn']}, step {step.step_number}: {e}", exc_info=True)
+
             return state
 
         # Keep function metadata nice for debug
@@ -261,6 +276,22 @@ class ClaimProcessor:
         # Debug logging for step results
         logger.info(f"Final state step_results: {json.dumps(final_state.get('step_results', {}), indent=2, default=str)}")
         
+        # Save the results to the database
+        try:
+            with get_db() as db:
+                crud.create_claim_processed(
+                    db=db,
+                    icn=final_state["icn"],
+                    sop_code=final_state["sop_code"],
+                    decision=final_state.get("decision"),
+                    decision_reason=final_state.get("decision_reason"),
+                    processing_results=final_state
+                )
+        except Exception as e:
+            logger.error(f"Failed to save processed claim {icn} to the database: {e}", exc_info=True)
+            # Optionally, you could add error information to the returned state
+            final_state["error"] = f"Failed to save to DB: {e}"
+
         return final_state
 
 

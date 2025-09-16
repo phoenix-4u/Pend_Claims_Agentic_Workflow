@@ -2,8 +2,9 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
+import json
 
-from ..models.claims import ClaimHeader, ClaimLine, SOPResult
+from ..models.claims import ClaimHeader, ClaimLine, SOPResult, ClaimProcessedLine, ClaimProcessingStep
 from ..models.sops import SOP
 from ..config.logging_config import logger
 
@@ -44,6 +45,24 @@ class ClaimCRUD:
             return claim_dict
         except Exception as e:
             logger.error(f"Error getting claim with lines for ICN {icn}: {e}")
+            raise
+    
+    @staticmethod
+    def get_all_claims_with_details(db: Session) -> List[Dict[str, Any]]:
+        """Retrieve all claims with their lines."""
+        try:
+            claims = db.query(ClaimHeader).all()
+            claim_list = []
+            for claim in claims:
+                claim_dict = {c.name: getattr(claim, c.name) for c in claim.__table__.columns}
+                claim_dict['claim_lines'] = [
+                    {c.name: getattr(line, c.name) for c in ClaimLine.__table__.columns}
+                    for line in ClaimCRUD.get_claim_lines(db, claim.icn)
+                ]
+                claim_list.append(claim_dict)
+            return claim_list
+        except Exception as e:
+            logger.error(f"Error getting all claims with details: {e}")
             raise
     
     @staticmethod
@@ -104,6 +123,71 @@ class ClaimCRUD:
             return query.order_by(SOPResult.step_number).all()
         except Exception as e:
             logger.error(f"Error getting SOP results for ICN {icn}: {e}")
+            raise
+
+    @staticmethod
+    def create_claim_processed(db: Session, icn: str, sop_code: str, decision: str, decision_reason: str, processing_results: Dict[str, Any]) -> ClaimProcessedLine:
+        """Create a new processed claim line."""
+        try:
+            processed_line = ClaimProcessedLine(
+                icn=icn,
+                sop_code=sop_code,
+                decision=decision,
+                decision_reason=decision_reason,
+                processing_results=json.dumps(processing_results, default=str)
+            )
+            db.add(processed_line)
+            db.commit()
+            db.refresh(processed_line)
+            logger.info(f"Saved processed result for ICN {icn} to the database.")
+            return processed_line
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error creating processed claim line for ICN {icn}: {e}")
+            raise
+
+    @staticmethod
+    def get_all_processed_claims(db: Session) -> List[ClaimProcessedLine]:
+        """Retrieve all processed claims."""
+        try:
+            return db.query(ClaimProcessedLine).all()
+        except Exception as e:
+            logger.error(f"Error getting all processed claims: {e}")
+            raise
+
+    @staticmethod
+    def create_claim_processing_step(db: Session, icn: str, sop_code: str, step_data: Dict[str, Any]) -> ClaimProcessingStep:
+        """Create a new claim processing step."""
+        try:
+            step = ClaimProcessingStep(
+                icn=icn,
+                sop_code=sop_code,
+                step_number=step_data.get("step_number"),
+                description=step_data.get("description"),
+                status=step_data.get("status"),
+                timestamp=step_data.get("timestamp"),
+                query=step_data.get("query"),
+                data=json.dumps(step_data.get("data"), default=str),
+                row_count=step_data.get("row_count"),
+                execution_time_ms=step_data.get("execution_time_ms"),
+                error=step_data.get("error")
+            )
+            db.add(step)
+            db.commit()
+            db.refresh(step)
+            return step
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error creating claim processing step for ICN {icn}: {e}")
+            raise
+
+    @staticmethod
+    def get_claim_processing_steps(db: Session, icn: str) -> List[ClaimProcessingStep]:
+        """Retrieve all processing steps for a given ICN."""
+        try:
+            return db.query(ClaimProcessingStep).filter(ClaimProcessingStep.icn == icn).order_by(ClaimProcessingStep.step_number).all()
+        except Exception as e:
+            logger.error(f"Error getting claim processing steps for ICN {icn}: {e}")
             raise
 
 # Create an instance for easier importing
