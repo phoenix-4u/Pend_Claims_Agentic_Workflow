@@ -5,7 +5,7 @@ BEGIN;
 -- ===========
 INSERT INTO claim_headers
 (icn, claim_type, member_id, member_name, member_dob, member_gender,
- provider_number, provider_name, provider_type, provider_specialty,
+ provider_number, provider_name, provider_type, provider_speciality,
  total_charge, primary_dx_code)
 VALUES
 ('20251220007100',NULL,'123456789','S. Smith','1990-06-01',NULL,

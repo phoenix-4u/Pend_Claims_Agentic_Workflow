@@ -148,9 +148,23 @@ class ClaimCRUD:
 
     @staticmethod
     def get_all_processed_claims(db: Session) -> List[ClaimProcessedLine]:
-        """Retrieve all processed claims."""
+        """Retrieve all processed claims, ensuring only the most recent entry for each ICN."""
         try:
-            return db.query(ClaimProcessedLine).all()
+            # Subquery to find the latest processed_at for each icn
+            from sqlalchemy import func
+            subquery = db.query(
+                ClaimProcessedLine.icn,
+                func.max(ClaimProcessedLine.id).label('max_id')
+            ).group_by(ClaimProcessedLine.icn).subquery()
+
+            # Join the original table with the subquery to get the full record of the latest entry
+            return db.query(ClaimProcessedLine).join(
+                subquery,
+                and_(
+                    ClaimProcessedLine.icn == subquery.c.icn,
+                    ClaimProcessedLine.id == subquery.c.max_id
+                )
+            ).all()
         except Exception as e:
             logger.error(f"Error getting all processed claims: {e}")
             raise

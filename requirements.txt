@@ -29,6 +29,7 @@ loguru
 typing-extensions
 pydantic
 pydantic-settings
+nest_asyncio
 
 openai>=1.0.0 
 fastmcp

@@ -27,11 +27,19 @@ def _ensure_event_loop():
 
 def _run_async(coro):
     """Run an async coroutine from sync code safely."""
-    loop = _ensure_event_loop()
-    if loop.is_running():
-        # If already in an async context, the caller must be async; re-raise for clarity
-        raise RuntimeError("SOPLoader called from an active event loop; use async methods instead.")
-    return loop.run_until_complete(coro)
+    try:
+        # Try to use nest_asyncio if available (for Jupyter/Streamlit environments)
+        import nest_asyncio
+        nest_asyncio.apply()
+        loop = _ensure_event_loop()
+        return loop.run_until_complete(coro)
+    except ImportError:
+        # Fallback to regular asyncio handling
+        loop = _ensure_event_loop()
+        if loop.is_running():
+            # If already in an async context, the caller must be async; re-raise for clarity
+            raise RuntimeError("SOPLoader called from an active event loop; use async methods instead.")
+        return loop.run_until_complete(coro)
 
 
 class SOPLoader:
