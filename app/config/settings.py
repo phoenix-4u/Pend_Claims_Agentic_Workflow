@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     DATA_DIR: Path = BASE_DIR / "data"
     
     # Database
-    DATABASE_URL: str = f"sqlite:///{BASE_DIR}/claims.db"
+    DATABASE_URL: str = f"sqlite:///{DATA_DIR}/claims.db"
 
     # Gemini
     GEMINI_API_KEY: str

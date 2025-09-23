@@ -218,21 +218,36 @@ class SOPCRUD:
         description: str,
         query: Optional[str]
     ) -> SOP:
-        """Create a new SOP step."""
+        """Create a new SOP step or update existing one."""
         try:
-            sop = SOP(
-                sop_code=sop_code,
-                step_number=step_number,
-                description=description,
-                query=query
-            )
-            db.add(sop)
-            db.commit()
-            db.refresh(sop)
-            return sop
+            # Check if SOP step already exists
+            existing_sop = db.query(SOP).filter(
+                SOP.sop_code == sop_code,
+                SOP.step_number == step_number
+            ).first()
+
+            if existing_sop:
+                # Update existing SOP step
+                existing_sop.description = description
+                existing_sop.query = query
+                db.commit()
+                logger.info(f"Updated existing SOP step {sop_code}-{step_number}")
+                return existing_sop
+            else:
+                # Create new SOP step
+                sop = SOP(
+                    sop_code=sop_code,
+                    step_number=step_number,
+                    description=description,
+                    query=query
+                )
+                db.add(sop)
+                db.commit()
+                logger.info(f"Created new SOP step {sop_code}-{step_number}")
+                return sop
         except Exception as e:
             db.rollback()
-            logger.error(f"Error creating SOP for SOP Code {sop_code}: {e}")
+            logger.error(f"Error creating/updating SOP for SOP Code {sop_code}: {e}")
             raise
 
 sop_crud = SOPCRUD()
