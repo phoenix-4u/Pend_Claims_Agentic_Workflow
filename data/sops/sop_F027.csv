@@ -1,0 +1,8 @@
+sop_code|step_number|description|query
+F027|1|Identify the Provider Specialty Code on the claim|SELECT provider_speciality FROM claim_headers WHERE icn = '{icn}';
+F027|2|Access the Code section of the Medical Policy Database and search to identify the Specialty Code on the claim to determine if that Provider Specialty is eligible for the service present on the claim|SELECT DISTINCT r.provider_speciality FROM hruk r WHERE r.procedure_code IN (SELECT procedure_code FROM claim_lines WHERE icn = '{icn}');
+F027|3|Compare the Specialty code in the Medical Policy Database to what is coded on HRUK application|SELECT DISTINCT r.provider_speciality FROM hruk r WHERE r.procedure_code IN (SELECT procedure_code FROM claim_lines WHERE icn = '{icn}');
+F027|4|If the HRUK application and the Medical Policy Database reflect the same information, then Examiner denies the claim	
+F027|5|Compare Provider Specialty on the claim with the Service performed in the claim. If the combination matches (valid) then resolve the pend by overriding the edit|SELECT cl.procedure_code, ch.provider_speciality FROM claim_headers ch JOIN claim_lines cl ON cl.icn = ch.icn WHERE ch.icn = '{icn}';
+F027|6|Create a Plog in ClearQuest to update the system making the Specialty valid for the Service so future claims do not stop for the F027 edit	
+
