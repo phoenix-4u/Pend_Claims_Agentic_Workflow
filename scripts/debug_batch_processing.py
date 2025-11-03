@@ -16,7 +16,7 @@ from app.sops.loader import sop_loader
 def debug_batch_processing():
     """Debug the batch processing claim matching logic."""
 
-    print("🔍 Debugging Batch Processing Claim Matching")
+    print("🔍 Debugging Bulk Claim Processing Claim Matching")
     print("=" * 50)
 
     # Step 1: Load SOPs

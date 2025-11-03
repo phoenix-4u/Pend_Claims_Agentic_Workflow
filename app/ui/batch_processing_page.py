@@ -103,7 +103,7 @@ async def process_claims_batch(claims_to_process, progress_bar, status_text):
         processed_count += 1
 
     progress_bar.progress(1.0)
-    status_text.text(f"Batch processing completed: {successful_count} successful, {failed_count} failed out of {total_claims} claims")
+    status_text.text(f"Bulk Claim processing completed: {successful_count} successful, {failed_count} failed out of {total_claims} claims")
 
     return results
 
@@ -172,8 +172,8 @@ def display_batch_processing_page(
     display_claim_lines, 
     display_processing_steps
 ):
-    """Displays the batch processing page with a grid of claims."""
-    st.header("Batch Claim Processing")
+    """Displays the Bulk Claim processing page with a grid of claims."""
+    st.header("Bulk Claim Processing")
 
     if "selected_icn" not in st.session_state:
         st.session_state.selected_icn = None
@@ -214,8 +214,8 @@ def display_batch_processing_page(
             st.session_state.selected_icn = None
 
     else:
-        # Batch processing section
-        st.subheader("Batch Processing")
+        # Bulk Claim processing section
+        st.subheader("Bulk Claim Processing")
 
         # Check for batch processing trigger
         if "batch_processing" not in st.session_state:
@@ -358,7 +358,7 @@ def display_batch_processing_page(
 
                     # Complete processing
                     progress_bar.progress(1.0)
-                    status_text.text(f"Batch processing completed: {successful_count} successful, {failed_count} failed out of {total_claims} claims")
+                    status_text.text(f"Bulk Claim processing completed: {successful_count} successful, {failed_count} failed out of {total_claims} claims")
 
                     st.session_state.batch_results = results
                     st.session_state.batch_step = "completed"
@@ -372,7 +372,7 @@ def display_batch_processing_page(
                         st.error(f"❌ Failed to process {len(failed)} claims")
 
                     # Show detailed results
-                    with st.expander("View Batch Processing Results", expanded=True):
+                    with st.expander("View Bulk Claim Processing Results", expanded=True):
                         results_df = pd.DataFrame(results)
                         st.dataframe(results_df, use_container_width=True)
 
@@ -380,7 +380,7 @@ def display_batch_processing_page(
                     st.session_state.batch_step = "loading_claims"
 
             except Exception as e:
-                st.error(f"Error during batch processing: {e}")
+                st.error(f"Error during Bulk Claim processing: {e}")
                 st.session_state.batch_processing = False
                 st.session_state.batch_step = "loading_claims"
 

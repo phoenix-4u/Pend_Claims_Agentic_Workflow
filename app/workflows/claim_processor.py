@@ -211,8 +211,11 @@ class ClaimProcessor:
             state["step_history"].append({
                 "step": f"Step {step.step_number}",
                 "status": exec_result.get("status", "completed"),
-                "timestamp": exec_result["timestamp"],
-                "details": exec_result,
+                #"timestamp": exec_result["timestamp"],
+                "details": {
+                    "Step Description": exec_result.get("description"),
+                    "Step Result": exec_result.get("data"),
+                }
             })
             state["last_ran_step"] = f"Step {step.step_number}"
 

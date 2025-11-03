@@ -320,7 +320,7 @@ async def main():
     # Sidebar for navigation
     with st.sidebar:
         st.header("Navigation")
-        page = st.radio("Choose a page", ["Process Single Claim", "Batch Processing", "Upload SOP"])
+        page = st.radio("Choose a page", ["Process Single Claim", "Bulk Claim Processing", "Upload SOP"])
 
     if page == "Process Single Claim":
         # Sidebar for claim lookup
@@ -391,7 +391,7 @@ async def main():
         else:
             st.info("Enter an ICN in the sidebar to begin analysis.")
 
-    elif page == "Batch Processing":
+    elif page == "Bulk Claim Processing":
         display_batch_processing_page(
             display_claim_summary,
             display_decision_and_details,

@@ -20,7 +20,7 @@ from app.config.logging_config import logger
 def clear_batch_processing_tables():
     """Clear all batch processing related tables."""
     try:
-        logger.info("Starting to clear batch processing tables...")
+        logger.info("Starting to clear Bulk Claim processing tables...")
 
         with get_db() as db:
             # Count records before deletion for reporting
@@ -39,15 +39,15 @@ def clear_batch_processing_tables():
             # Commit the changes
             db.commit()
 
-            logger.info("Successfully cleared all batch processing tables.")
-            print("✅ Batch processing tables cleared successfully!")
+            logger.info("Successfully cleared all Bulk Claim processing tables.")
+            print("✅ Bulk Claim processing tables cleared successfully!")
             print(f"   - Deleted {sop_results_count} SOP results")
             print(f"   - Deleted {processed_lines_count} processed claims")
             print(f"   - Deleted {processing_steps_count} processing steps")
 
     except Exception as e:
-        logger.error(f"Error clearing batch processing tables: {e}")
-        print(f"❌ Error clearing batch processing tables: {e}")
+        logger.error(f"Error clearing Bulk Claim processing tables: {e}")
+        print(f"❌ Error clearing Bulk Claim processing tables: {e}")
         raise
 
 if __name__ == "__main__":
