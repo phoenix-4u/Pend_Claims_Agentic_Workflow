@@ -56,6 +56,8 @@ virtualenv/
 *.sqlite
 *.sqlite3
 consolidated_sops.db
+!data/claims.db
+!data/claims_back.db
 
 # Log files and directories
 *.log
