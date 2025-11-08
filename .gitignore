@@ -40,9 +40,9 @@ virtualenv/
 
 # Environment variables
 # Ignore all .env files to keep secrets out of git, but track templates.
-.env
-.env.*
-!.env.example
+#.env
+#.env.*
+#!.env.example
 
 
 # -----------------------------------------------------------------------------
